@@ -9,8 +9,20 @@ use defmt::{dbg, info};
 use embedded_hal::digital::v2::OutputPin;
 use rp_pico::{
     hal::{dma::DMAExt, gpio::PinState, pwm, sio::Sio, watchdog::Watchdog, Clock},
-    pac, Pins,
+    pac
 };
+
+rp_pico::hal::bsp_pins!(
+    Gpio13 { name: led },
+    Gpio16 { name: clock_pos },
+    Gpio17 { name: clock_neg },
+    Gpio18 { name: red_pos },
+    Gpio19 { name: red_neg },
+    Gpio20 { name: green_pos },
+    Gpio21 { name: green_neg },
+    Gpio22 { name: blue_pos },
+    Gpio23 { name: blue_neg },
+);
 
 use crate::{
     clock::init_clocks,
@@ -57,7 +69,7 @@ fn entry() -> ! {
         &mut peripherals.RESETS,
     );
 
-    let mut led_pin = pins.gpio16.into_push_pull_output_in_state(PinState::Low);
+    let mut led_pin = pins.led.into_push_pull_output_in_state(PinState::Low);
 
     let mut delay = Delay::new(
         core_peripherals.SYST,
@@ -71,17 +83,17 @@ fn entry() -> ! {
         peripherals.PIO0,
         &mut peripherals.RESETS,
         DviDataPins {
-            red_pos: pins.gpio10,
-            red_neg: pins.gpio11,
-            green_pos: pins.gpio12,
-            green_neg: pins.gpio13,
-            blue_pos: pins.gpio14,
-            blue_neg: pins.gpio15,
+            red_pos: pins.red_pos,
+            red_neg: pins.red_neg,
+            green_pos: pins.green_pos,
+            green_neg: pins.green_neg,
+            blue_pos: pins.blue_pos,
+            blue_neg: pins.blue_neg,
         },
         DviClockPins {
-            clock_pos: pins.gpio8,
-            clock_neg: pins.gpio9,
-            pwm_slice: pwm_slices.pwm4,
+            clock_pos: pins.clock_pos,
+            clock_neg: pins.clock_neg,
+            pwm_slice: pwm_slices.pwm0,
         },
     );
 
