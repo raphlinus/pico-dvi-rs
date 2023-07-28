@@ -113,7 +113,7 @@ fn entry() -> ! {
         &mut peripherals.RESETS,
     );
 
-    let mut led_pin = pins.led.into_push_pull_output_in_state(PinState::Low);
+    let mut led_pin = pins.gpio13.into_push_pull_output_in_state(PinState::Low);
 
     let mut delay = Delay::new(
         core_peripherals.SYST,
@@ -127,19 +127,19 @@ fn entry() -> ! {
         (
             DviDataPins {
                 // 0
-                blue_pos: pins.gpio12.into_mode(),
-                blue_neg: pins.gpio13.into_mode(),
+                blue_pos: pins.gpio19.into_mode(),
+                blue_neg: pins.gpio18.into_mode(),
                 // 1
-                green_pos: pins.gpio10.into_mode(),
-                green_neg: pins.gpio11.into_mode(),
+                green_pos: pins.gpio21.into_mode(),
+                green_neg: pins.gpio20.into_mode(),
                 // 2
-                red_pos: pins.gpio16.into_mode(),
-                red_neg: pins.gpio17.into_mode(),
+                red_pos: pins.b_power_save.into_mode(),
+                red_neg: pins.gpio22.into_mode(),
             },
             DviClockPins {
-                clock_pos: pins.gpio14,
-                clock_neg: pins.gpio15,
-                pwm_slice: pwm_slices.pwm7,
+                clock_pos: pins.gpio16,
+                clock_neg: pins.gpio17,
+                pwm_slice: pwm_slices.pwm0,
             },
         )
     };
