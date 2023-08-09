@@ -1,7 +1,11 @@
+mod palette;
+
 use crate::{
     dvi::{tmds::TmdsPair, VERTICAL_REPEAT},
     scanlist::{Scanlist, ScanlistBuilder},
 };
+
+use self::palette::BW_PALETTE;
 
 pub struct ScanRender {
     scanlist: Scanlist,
@@ -32,6 +36,8 @@ fn rgb(r: u8, g: u8, b: u8) -> [TmdsPair; 3] {
     ]
 }
 
+static BITMAP_DATA: &[u32] = &[0x55555555, 0xaaaaaaaa];
+
 impl ScanRender {
     pub fn new() -> Self {
         let mut sb = ScanlistBuilder::new(640, 480 / VERTICAL_REPEAT as u32);
@@ -53,7 +59,7 @@ impl ScanRender {
         sb.solid(90, rgb(0x13, 0x13, 0x13));
         sb.solid(92, rgb(0xc0, 0xc0, 0xc0));
         sb.end_stripe();
-        sb.begin_stripe(120 / VERTICAL_REPEAT as u32);
+        sb.begin_stripe(60 / VERTICAL_REPEAT as u32);
         sb.solid(114, rgb(0, 0x21, 0x4c));
         sb.solid(114, rgb(0xff, 0xff, 0xff));
         sb.solid(114, rgb(0x32, 0, 0x6a));
@@ -62,6 +68,10 @@ impl ScanRender {
         sb.solid(30, rgb(0x13, 0x13, 0x13));
         sb.solid(30, rgb(0x1d, 0x1d, 0x1d));
         sb.solid(92, rgb(0x13, 0x13, 0x13));
+        sb.end_stripe();
+        sb.begin_stripe(60 / VERTICAL_REPEAT as u32);
+        sb.pal_1bpp(64, &BW_PALETTE);
+        sb.solid(576, rgb(0x13, 0x13, 0x13));
         sb.end_stripe();
         let scanlist = sb.build();
         let stripe_remaining = 0;
@@ -88,7 +98,7 @@ impl ScanRender {
             }
             self.scan_next = tmds_scan(
                 self.scan_ptr,
-                core::ptr::null(),
+                BITMAP_DATA.as_ptr(),
                 tmds_buf.as_mut_ptr(),
                 1280,
             );
