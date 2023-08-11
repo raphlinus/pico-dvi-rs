@@ -23,9 +23,11 @@ use rp_pico::{
         watchdog::Watchdog,
         Clock,
     },
-    pac::{self, Interrupt},
+    pac::{self, interrupt},
     Pins,
 };
+
+use pac::Interrupt;
 
 use crate::{
     clock::init_clocks,
@@ -36,6 +38,7 @@ use crate::{
         timing::VGA_TIMING,
         DviInst,
     },
+    render::render_line,
 };
 
 mod clock;
@@ -94,7 +97,7 @@ fn entry() -> ! {
     sysinfo(&peripherals.SYSINFO);
 
     let mut watchdog = Watchdog::new(peripherals.WATCHDOG);
-    let mut single_cycle_io = Sio::new(peripherals.SIO);
+    let single_cycle_io = Sio::new(peripherals.SIO);
 
     let timing = VGA_TIMING;
 
@@ -163,20 +166,11 @@ fn entry() -> ! {
     {
         // Safety: the DMA_IRQ_0 handler is not enabled yet. We have exclusive access to this static.
         let inst = unsafe { (*DVI_INST.0.get()).write(DviInst::new(timing, dma_channels)) };
-
         inst.setup_dma();
         inst.start();
     }
-    // Safety: we pass ownership of DVI_INST to the DMA_IRQ_0 handler.
-    // For this to be safe, no references to DVI_INST can be used after this unmask
-    unsafe {
-        NVIC::unmask(Interrupt::DMA_IRQ_0);
-    }
-    let mut mc = Multicore::new(
-        &mut peripherals.PSM,
-        &mut peripherals.PPB,
-        &mut single_cycle_io.fifo,
-    );
+    let mut fifo = single_cycle_io.fifo;
+    let mut mc = Multicore::new(&mut peripherals.PSM, &mut peripherals.PPB, &mut fifo);
     let cores = mc.cores();
     let core1 = &mut cores[1];
     core1
@@ -184,14 +178,15 @@ fn entry() -> ! {
             core1_main(serializer)
         })
         .unwrap();
+    // Safety: enable interrupt for FIFO to receive line render requests.
+    unsafe {
+        NVIC::unmask(Interrupt::SIO_IRQ_PROC0);
+    }
 
     rom();
     ram();
     ram_x();
     ram_y();
-
-    //unsafe { dbg!(&framebuffer::FRAMEBUFFER_16BPP as *const _) };
-    //unsafe { dbg!(&framebuffer::FRAMEBUFFER_8BPP as *const _) };
 
     loop {
         led_pin.toggle().unwrap();
@@ -242,4 +237,19 @@ fn ram_x() {
 #[link_section = link!(scratch y, ram_y)]
 fn ram_y() {
     dbg!(ram_y as fn() as *const ());
+}
+
+#[link_section = ".data"]
+#[interrupt]
+fn SIO_IRQ_PROC0() {
+    // Safety: this interrupt handler has exclusive access to this
+    // end of the fifo.
+    let pac = unsafe { pac::Peripherals::steal() };
+    let sio = Sio::new(pac.SIO);
+    let mut fifo = sio.fifo;
+    while let Some(line_ix) = fifo.read() {
+        // Safety: exclusive access to the line buffer is granted
+        // when the render is scheduled to a core.
+        unsafe { render_line(line_ix, 0) };
+    }
 }

@@ -1,6 +1,14 @@
 // This entry point is put in .data so it doesn't generate a thunk.
 .section .data
 
+.global microdelay
+.type microdelay,%function
+.thumb_func
+microdelay:
+    subs r0, #1
+    bne microdelay
+    bx lr
+
 .global tmds_scan
 .type tmds_scan,%function
 .thumb_func
