@@ -4,11 +4,19 @@ pub mod timing;
 pub mod tmds;
 
 use alloc::boxed::Box;
+use cortex_m::{asm::wfe, peripheral::NVIC};
+use rp_pico::hal::{
+    gpio::{bank0, PinId},
+    pac::Interrupt,
+    pio,
+    pwm::{self, ValidPwmOutputPin},
+};
 
 use crate::{pac::interrupt, render::ScanRender, DVI_INST};
 
 use self::{
     dma::{DmaChannelList, DmaChannels},
+    serializer::DviSerializer,
     timing::{DviScanlineDmaList, DviTiming, DviTimingLineState, DviTimingState},
     tmds::TmdsPair,
 };
@@ -132,6 +140,45 @@ impl<Channels: DmaChannelList> DviInst<Channels> {
                 self.scan_render.render_scanline(tmds_slice, y);
             }
         }
+    }
+}
+
+/// We dedicate core 1 to running the primary video interrupt and also
+/// background rendering tasks.
+#[link_section = ".data"]
+pub fn core1_main<PIO, SliceId, Pos, Neg, RedPos, RedNeg, GreenPos, GreenNeg, BluePos, BlueNeg>(
+    mut serializer: DviSerializer<
+        PIO,
+        SliceId,
+        Pos,
+        Neg,
+        RedPos,
+        RedNeg,
+        GreenPos,
+        GreenNeg,
+        BluePos,
+        BlueNeg,
+    >,
+) -> !
+where
+    PIO: pio::PIOExt,
+    SliceId: pwm::SliceId,
+    Pos: PinId + bank0::BankPinId + ValidPwmOutputPin<SliceId, pwm::A>,
+    Neg: PinId + bank0::BankPinId + ValidPwmOutputPin<SliceId, pwm::B>,
+    RedPos: PinId + bank0::BankPinId,
+    RedNeg: PinId + bank0::BankPinId,
+    GreenPos: PinId + bank0::BankPinId,
+    GreenNeg: PinId + bank0::BankPinId,
+    BluePos: PinId + bank0::BankPinId,
+    BlueNeg: PinId + bank0::BankPinId,
+{
+    unsafe {
+        NVIC::unmask(Interrupt::DMA_IRQ_0);
+    }
+    serializer.wait_fifos_full();
+    serializer.enable();
+    loop {
+        wfe();
     }
 }
 

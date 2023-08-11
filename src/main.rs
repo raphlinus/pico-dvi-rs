@@ -17,6 +17,7 @@ use rp_pico::{
     hal::{
         dma::{Channel, DMAExt, CH0, CH1, CH2, CH3, CH4, CH5},
         gpio::PinState,
+        multicore::{Multicore, Stack},
         pwm,
         sio::Sio,
         watchdog::Watchdog,
@@ -29,6 +30,7 @@ use rp_pico::{
 use crate::{
     clock::init_clocks,
     dvi::{
+        core1_main,
         dma::DmaChannels,
         serializer::{DviClockPins, DviDataPins, DviSerializer},
         timing::VGA_TIMING,
@@ -70,6 +72,8 @@ unsafe impl Sync for DviInstWrapper {}
 
 static DVI_INST: DviInstWrapper = DviInstWrapper(UnsafeCell::new(MaybeUninit::uninit()));
 
+static mut CORE1_STACK: Stack<256> = Stack::new();
+
 // Separate macro annotated function to make rust-analyzer fixes apply better
 #[rp_pico::entry]
 fn macro_entry() -> ! {
@@ -90,7 +94,7 @@ fn entry() -> ! {
     sysinfo(&peripherals.SYSINFO);
 
     let mut watchdog = Watchdog::new(peripherals.WATCHDOG);
-    let single_cycle_io = Sio::new(peripherals.SIO);
+    let mut single_cycle_io = Sio::new(peripherals.SIO);
 
     let timing = VGA_TIMING;
 
@@ -144,7 +148,7 @@ fn entry() -> ! {
         )
     };
 
-    let mut serializer = DviSerializer::new(
+    let serializer = DviSerializer::new(
         peripherals.PIO0,
         &mut peripherals.RESETS,
         data_pins,
@@ -168,8 +172,18 @@ fn entry() -> ! {
     unsafe {
         NVIC::unmask(Interrupt::DMA_IRQ_0);
     }
-    serializer.wait_fifos_full();
-    serializer.enable();
+    let mut mc = Multicore::new(
+        &mut peripherals.PSM,
+        &mut peripherals.PPB,
+        &mut single_cycle_io.fifo,
+    );
+    let cores = mc.cores();
+    let core1 = &mut cores[1];
+    core1
+        .spawn(unsafe { &mut CORE1_STACK.mem }, move || {
+            core1_main(serializer)
+        })
+        .unwrap();
 
     rom();
     ram();
