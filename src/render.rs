@@ -62,9 +62,6 @@ extern "C" {
         output: *mut TmdsPair,
         stride: u32,
     ) -> *const u32;
-
-    /// Delay approx 3x the argument clock cycles.
-    fn microdelay(delay: u32);
 }
 
 fn rgb(r: u8, g: u8, b: u8) -> [TmdsPair; 3] {
@@ -191,10 +188,9 @@ impl ScanRender {
 ///
 /// This can be called by either core.
 #[link_section = ".data"]
-pub unsafe fn render_line(line_ix: u32, core: u32) {
+pub unsafe fn render_line(line_ix: u32) {
     let line_buf = &mut LINE_BUFS[line_ix as usize];
     render_line_inner(line_buf);
-    line_buf.buf[1] = core;
     PENDING[line_ix as usize].store(false, Ordering::Release);
 }
 
@@ -207,7 +203,4 @@ fn render_line_inner(line_buf: &mut LineBuf) {
     line_buf.buf[0] = 0x55555555;
     line_buf.buf[1] = 0xaaaaaaaa;
     line_buf.buf[2] = x;
-    unsafe {
-        microdelay(1 + x / 100);
-    }
 }

@@ -232,7 +232,7 @@ where
         let line_ix = CORE1_QUEUE.peek_blocking();
         // Safety: exclusive access to the line buffer is granted
         // when the render is scheduled to a core.
-        unsafe { render_line(line_ix, 1) };
+        unsafe { render_line(line_ix) };
         CORE1_QUEUE.remove();
     }
 }

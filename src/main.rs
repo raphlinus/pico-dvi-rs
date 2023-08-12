@@ -250,6 +250,6 @@ fn SIO_IRQ_PROC0() {
     while let Some(line_ix) = fifo.read() {
         // Safety: exclusive access to the line buffer is granted
         // when the render is scheduled to a core.
-        unsafe { render_line(line_ix, 0) };
+        unsafe { render_line(line_ix) };
     }
 }
