@@ -35,7 +35,7 @@ static PENDING: [AtomicBool; N_LINE_BUFS] = [ATOMIC_FALSE; N_LINE_BUFS];
 
 /// The maximum number of lines that can be scheduled on core1.
 const MAX_CORE1_PENDING: usize = 1;
-const LINE_QUEUE_SIZE: usize = MAX_CORE1_PENDING * 2;
+const LINE_QUEUE_SIZE: usize = (MAX_CORE1_PENDING + 1).next_power_of_two();
 pub static CORE1_QUEUE: Queue<LINE_QUEUE_SIZE> = Queue::new();
 
 #[derive(Clone, Copy)]

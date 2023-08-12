@@ -19,7 +19,7 @@ use rp_pico::{
         gpio::PinState,
         multicore::{Multicore, Stack},
         pwm,
-        sio::Sio,
+        sio::{Sio, SioFifo},
         watchdog::Watchdog,
         Clock,
     },
@@ -71,11 +71,16 @@ struct DviInstWrapper(UnsafeCell<MaybeUninit<DviInst<DviChannels>>>);
 // as it is initialized in the main thread and the interrupt should
 // be modeled as another thread (and may be on a different core),
 // but only one has access at a time.
+//
+// Note: this is annoying, `static mut` is more ergonomic (but less
+// precise). When `SyncUnsafeCell` is stabilized, use that instead.
 unsafe impl Sync for DviInstWrapper {}
 
 static DVI_INST: DviInstWrapper = DviInstWrapper(UnsafeCell::new(MaybeUninit::uninit()));
 
 static mut CORE1_STACK: Stack<256> = Stack::new();
+
+static mut FIFO: MaybeUninit<SioFifo> = MaybeUninit::uninit();
 
 // Separate macro annotated function to make rust-analyzer fixes apply better
 #[rp_pico::entry]
@@ -178,8 +183,10 @@ fn entry() -> ! {
             core1_main(serializer)
         })
         .unwrap();
-    // Safety: enable interrupt for FIFO to receive line render requests.
+    // Safety: enable interrupt for fifo to receive line render requests.
+    // Transfer ownership of this end of the fifo to the interrupt handler.
     unsafe {
+        FIFO = MaybeUninit::new(fifo);
         NVIC::unmask(Interrupt::SIO_IRQ_PROC0);
     }
 
@@ -244,9 +251,7 @@ fn ram_y() {
 fn SIO_IRQ_PROC0() {
     // Safety: this interrupt handler has exclusive access to this
     // end of the fifo.
-    let pac = unsafe { pac::Peripherals::steal() };
-    let sio = Sio::new(pac.SIO);
-    let mut fifo = sio.fifo;
+    let fifo = unsafe { FIFO.assume_init_mut() };
     while let Some(line_ix) = fifo.read() {
         // Safety: exclusive access to the line buffer is granted
         // when the render is scheduled to a core.
