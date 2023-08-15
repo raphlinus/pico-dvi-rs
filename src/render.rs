@@ -1,7 +1,8 @@
 mod palette;
 mod queue;
+mod renderlist;
 
-use core::sync::atomic::{compiler_fence, AtomicBool, AtomicU32, Ordering};
+use core::sync::atomic::{compiler_fence, AtomicBool, Ordering};
 
 use rp_pico::{
     hal::{sio::SioFifo, Sio},
@@ -13,7 +14,7 @@ use crate::{
     scanlist::{Scanlist, ScanlistBuilder},
 };
 
-use self::{palette::BW_PALETTE, queue::Queue};
+use self::{palette::BW_PALETTE, queue::Queue, renderlist::{Renderlist, RenderlistBuilder}};
 
 pub const N_LINE_BUFS: usize = 4;
 
@@ -24,6 +25,9 @@ pub struct ScanRender {
     scan_next: *const u32,
     assigned: [bool; N_LINE_BUFS],
     fifo: SioFifo,
+    renderlist: Renderlist,
+    render_ptr: *const u32,
+    render_y: u32,
 }
 
 /// Size of a line buffer in u32 units.
@@ -40,13 +44,18 @@ pub static CORE1_QUEUE: Queue<LINE_QUEUE_SIZE> = Queue::new();
 
 #[derive(Clone, Copy)]
 pub struct LineBuf {
+    render_ptr: *const u32,
+    /// Y coordinate relative to top of stripe.
+    y: u32,
     buf: [u32; LINE_BUF_SIZE],
 }
 
 impl LineBuf {
     const fn zero() -> Self {
+        let render_ptr = core::ptr::null();
+        let y = 0;
         let buf = [0; LINE_BUF_SIZE];
-        LineBuf { buf }
+        LineBuf { render_ptr, y, buf }
     }
 }
 
@@ -117,6 +126,12 @@ impl ScanRender {
         let pac = unsafe { pac::Peripherals::steal() };
         let sio = Sio::new(pac.SIO);
         let fifo = sio.fifo;
+        let mut rb = RenderlistBuilder::new();
+        rb.begin_stripe(240);
+        rb.end_stripe();
+        let renderlist = rb.build();
+        let render_ptr = core::ptr::null();
+        let render_y = 0;
         ScanRender {
             scanlist,
             stripe_remaining,
@@ -124,6 +139,9 @@ impl ScanRender {
             scan_next,
             assigned: [false; N_LINE_BUFS],
             fifo,
+            renderlist,
+            render_ptr,
+            render_y,
         }
     }
 
@@ -157,10 +175,27 @@ impl ScanRender {
 
     #[link_section = ".data"]
     pub fn schedule_line_render(&mut self, y: u32) {
+        if y == 0 {
+            self.render_ptr = self.renderlist.get().as_ptr();
+            self.render_y = 0;
+        }
         let line_ix = y as usize % N_LINE_BUFS;
         if PENDING[line_ix].load(Ordering::Relaxed) {
             self.assigned[line_ix] = false;
             return;
+        }
+        let render_ptr = self.render_ptr;
+        // TODO: set ptr, y in linebuf
+        // Safety: we currently own access to the line buffer.
+        let line_buf = unsafe { &mut LINE_BUFS[line_ix as usize] };
+        line_buf.render_ptr = unsafe { render_ptr.add(2) };
+        line_buf.y = self.render_y;
+        self.render_y += 1;
+        let stripe_height = unsafe { render_ptr.read() };
+        if self.render_y == stripe_height {
+            let jump = unsafe { render_ptr.add(1).read() as usize};
+            self.render_ptr = unsafe { render_ptr.add(jump) };
+            self.render_y = 0;
         }
         if CORE1_QUEUE.len() < MAX_CORE1_PENDING {
             // schedule on core1
@@ -194,13 +229,9 @@ pub unsafe fn render_line(line_ix: u32) {
     PENDING[line_ix as usize].store(false, Ordering::Release);
 }
 
-static COUNT: AtomicU32 = AtomicU32::new(0);
-
 #[link_section = ".data"]
 fn render_line_inner(line_buf: &mut LineBuf) {
-    let x = COUNT.load(Ordering::Relaxed);
-    COUNT.store(x + 1, Ordering::Relaxed);
     line_buf.buf[0] = 0x55555555;
     line_buf.buf[1] = 0xaaaaaaaa;
-    line_buf.buf[2] = x;
+    line_buf.buf[2] = line_buf.y;
 }
